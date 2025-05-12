@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Development environment
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: react-app-dev
+    ports:
+      - "8081:80"
+    environment:
+      - NODE_ENV=development
+
+  # Staging environment
+  staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: react-app-staging
+    ports:
+      - "8082:80"
+    environment:
+      - NODE_ENV=staging
+
+  # Production environment
+  prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: react-app-prod
+    ports:
+      - "8083:80"
+    environment:
+      - NODE_ENV=production
