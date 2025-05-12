@@ -7,10 +7,23 @@ pipeline {
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run tests during build')
     }
 
+    environment {
+        NODE_VERSION = '18'
+        DOCKER_IMAGE = 'react-app'
+    }
+
     stages {
-        stage('Checkout') {
+        stage('Setup Node.js') {
             steps {
-                checkout scm
+                script {
+                    // Use nvm or node tool to ensure correct Node.js version
+                    sh """
+                        export NVM_DIR="\$HOME/.nvm"
+                        [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
+                        nvm install ${NODE_VERSION}
+                        nvm use ${NODE_VERSION}
+                    """
+                }
             }
         }
 
@@ -26,12 +39,9 @@ pipeline {
             }
         }
 
-        stage('Test') {
-            when {
-                expression { return params.RUN_TESTS }
-            }
+        stage('Type Check') {
             steps {
-                sh 'echo "Running tests..." && npm test || echo "No tests configured"'
+                sh 'npx tsc --noEmit'
             }
         }
 
@@ -43,8 +53,14 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t react-app:${params.DOCKER_TAG}-${params.ENVIRONMENT} ."
-                sh "docker tag react-app:${params.DOCKER_TAG}-${params.ENVIRONMENT} react-app:${params.ENVIRONMENT}"
+                script {
+                    def imageTag = "${DOCKER_IMAGE}:${params.DOCKER_TAG}-${params.ENVIRONMENT}"
+                    def envTag = "${DOCKER_IMAGE}:${params.ENVIRONMENT}"
+                    
+                    // Build the Docker image
+                    sh "docker build -t ${imageTag} ."
+                    sh "docker tag ${imageTag} ${envTag}"
+                }
             }
         }
 
@@ -63,12 +79,23 @@ pipeline {
                             port = 8083
                             break
                         default:
-                            port = 8080
+                            error "Invalid environment specified"
                     }
                     
-                    sh "docker stop react-app-${params.ENVIRONMENT} || true"
-                    sh "docker rm react-app-${params.ENVIRONMENT} || true"
-                    sh "docker run -d -p ${port}:80 --name react-app-${params.ENVIRONMENT} react-app:${params.ENVIRONMENT}"
+                    def containerName = "react-app-${params.ENVIRONMENT}"
+                    
+                    // Stop and remove existing container if it exists
+                    sh "docker stop ${containerName} || true"
+                    sh "docker rm ${containerName} || true"
+                    
+                    // Run the new container
+                    sh """
+                        docker run -d \
+                            -p ${port}:80 \
+                            --name ${containerName} \
+                            --restart unless-stopped \
+                            ${DOCKER_IMAGE}:${params.ENVIRONMENT}
+                    """
                     
                     echo "Application deployed to http://localhost:${port}"
                 }
@@ -84,8 +111,17 @@ pipeline {
             echo "Pipeline failed. Please check the logs for more information."
         }
         always {
-            echo "Cleaning up workspace..."
+            // Clean workspace
             cleanWs()
+            
+            // Clean up old Docker images to prevent disk space issues
+            script {
+                try {
+                    sh "docker image prune -f"
+                } catch (err) {
+                    echo "Warning: Failed to clean up Docker images: ${err}"
+                }
+            }
         }
     }
 }
